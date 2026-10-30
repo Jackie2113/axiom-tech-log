@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" width="960" height="560" role="img" aria-labelledby="t d">
+  <title id="t">Simplified game engine architecture</title>
+  <desc id="d">Layered diagram: game content on top, gameplay and scripting below it, then engine systems (rendering, physics, animation, audio, AI, networking, UI, world streaming), a core layer, and a platform layer. An editor and tools column sits beside the stack.</desc>
+  <defs>
+    <style>
+      text { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .bg { fill: #0b0b0b; stroke: #2a2a2a; }
+      .layer { fill: #141414; stroke: #5a5a5a; stroke-width: 1; }
+      .sys { fill: #1b2433; stroke: #6ea8fe; stroke-width: 1; }
+      .tool { fill: #181818; stroke: #3a3a3a; stroke-width: 1; }
+      .kicker { fill: #8a8a8a; font-size: 11px; letter-spacing: 1.6px; }
+      .h { fill: #f2f2f2; font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+      .s { fill: #a8a8a8; font-size: 12px; }
+      .sysT { fill: #dbe8ff; font-size: 13px; font-weight: 600; }
+      .arrow { fill: #6a6a6a; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="959" height="559" rx="12"/>
+  <text class="kicker" x="40" y="42">GAME ENGINE ARCHITECTURE // SIMPLIFIED</text>
+
+  <!-- Layer 1: game -->
+  <rect class="layer" x="40" y="62" width="720" height="62" rx="8"/>
+  <text class="h" x="60" y="88">YOUR GAME</text>
+  <text class="s" x="60" y="109">levels · characters · rules · UI · audio · art assets</text>
+  <polygon class="arrow" points="392,130 408,130 400,140"/>
+
+  <!-- Layer 2: gameplay -->
+  <rect class="layer" x="40" y="144" width="720" height="62" rx="8"/>
+  <text class="h" x="60" y="170">GAMEPLAY LAYER &amp; SCRIPTING</text>
+  <text class="s" x="60" y="191">Blueprints · C++ · C# · GDScript · Verse</text>
+  <polygon class="arrow" points="392,212 408,212 400,222"/>
+
+  <!-- Layer 3: systems -->
+  <rect class="layer" x="40" y="226" width="720" height="156" rx="8"/>
+  <text class="h" x="60" y="252">ENGINE SYSTEMS</text>
+  <rect class="sys" x="60"  y="268" width="156" height="40" rx="6"/>
+  <text class="sysT" x="138" y="293" text-anchor="middle">Rendering</text>
+  <rect class="sys" x="228" y="268" width="156" height="40" rx="6"/>
+  <text class="sysT" x="306" y="293" text-anchor="middle">Physics</text>
+  <rect class="sys" x="396" y="268" width="156" height="40" rx="6"/>
+  <text class="sysT" x="474" y="293" text-anchor="middle">Animation</text>
+  <rect class="sys" x="564" y="268" width="176" height="40" rx="6"/>
+  <text class="sysT" x="652" y="293" text-anchor="middle">Audio</text>
+  <rect class="sys" x="60"  y="320" width="156" height="40" rx="6"/>
+  <text class="sysT" x="138" y="345" text-anchor="middle">AI &amp; Navigation</text>
+  <rect class="sys" x="228" y="320" width="156" height="40" rx="6"/>
+  <text class="sysT" x="306" y="345" text-anchor="middle">Networking</text>
+  <rect class="sys" x="396" y="320" width="156" height="40" rx="6"/>
+  <text class="sysT" x="474" y="345" text-anchor="middle">UI</text>
+  <rect class="sys" x="564" y="320" width="176" height="40" rx="6"/>
+  <text class="sysT" x="652" y="345" text-anchor="middle">World Streaming</text>
+  <polygon class="arrow" points="392,388 408,388 400,398"/>
+
+  <!-- Layer 4: core -->
+  <rect class="layer" x="40" y="402" width="720" height="62" rx="8"/>
+  <text class="h" x="60" y="428">CORE</text>
+  <text class="s" x="60" y="449">scene &amp; entity model · asset pipeline · job system · memory · logging</text>
+  <polygon class="arrow" points="392,470 408,470 400,480"/>
+
+  <!-- Layer 5: platform -->
+  <rect class="layer" x="40" y="484" width="720" height="62" rx="8"/>
+  <text class="h" x="60" y="510">PLATFORM LAYER</text>
+  <text class="s" x="60" y="531">DirectX · Vulkan · Metal · consoles · OS · input · storage</text>
+
+  <!-- Sidebar: tools -->
+  <rect class="tool" x="780" y="62" width="140" height="484" rx="8"/>
+  <text class="h" x="796" y="88" style="font-size:13px">EDITOR</text>
+  <text class="h" x="796" y="106" style="font-size:13px">&amp; TOOLS</text>
+  <line x1="796" y1="120" x2="904" y2="120" stroke="#3a3a3a"/>
+  <text class="s" x="796" y="148">Scene editor</text>
+  <text class="s" x="796" y="180">Material graph</text>
+  <text class="s" x="796" y="212">Animation</text>
+  <text class="s" x="796" y="228">tools</text>
+  <text class="s" x="796" y="260">Profiler</text>
+  <text class="s" x="796" y="292">Build &amp; cook</text>
+  <text class="s" x="796" y="324">Version</text>
+  <text class="s" x="796" y="340">control</text>
+  <text class="s" x="796" y="372">Asset</text>
+  <text class="s" x="796" y="388">browser</text>
+  <text class="s" x="796" y="420">AI / MCP</text>
+  <text class="s" x="796" y="436">hooks</text>
+  <text class="kicker" x="796" y="520" style="font-size:10px">touches every layer</text>
+</svg>
