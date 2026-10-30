@@ -1,0 +1,115 @@
+---
+import '../styles/global.css';
+const { title = 'AXIOM' } = Astro.props;
+const pathname = Astro.url.pathname;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script is:inline>
+      const savedTheme = localStorage.getItem('theme') || 
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
+  </head>
+  <body>
+    <div class="cursor-dot" id="cursor-dot"></div>
+    <div class="cursor-ring" id="cursor-ring"></div>
+
+    <div class="container">
+      <header class="site-header">
+        <div class="brand-group">
+          <a href="/" class="site-title">AXIOM</a>
+          <span class="site-subtitle">// Tech Compendium</span>
+        </div>
+        <nav class="site-nav">
+          <a href="/" class={pathname === '/' ? 'active' : ''}>Index</a>
+          <a href="/about" class={pathname.startsWith('/about') ? 'active' : ''}>About</a>
+          <a href="/suggest" class={pathname.startsWith('/suggest') ? 'active' : ''}>Suggest</a>
+          <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">DARK</button>
+        </nav>
+      </header>
+
+      <main>
+        <slot />
+      </main>
+
+      <footer class="site-footer">
+        <span>Made by Jacob</span>
+        <span>Made with Astro</span>
+        <span id="live-clock">--:--:-- IST</span>
+      </footer>
+    </div>
+
+    <script>
+      // 1. Theme Toggle
+      const btn = document.getElementById('theme-toggle');
+      const updateBtnText = () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        if (btn) btn.textContent = current === 'dark' ? 'LIGHT' : 'DARK';
+      };
+      updateBtnText();
+
+      btn?.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        updateBtnText();
+      });
+
+      // 2. Live Footer Clock
+      const clock = document.getElementById('live-clock');
+      const updateClock = () => {
+        if (!clock) return;
+        const now = new Date();
+        clock.textContent = now.toLocaleTimeString('en-IN', {
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZoneName: 'short'
+        });
+      };
+      updateClock();
+      setInterval(updateClock, 1000);
+
+      // 3. Smooth Lerp Precision Cursor
+      const dot = document.getElementById('cursor-dot');
+      const ring = document.getElementById('cursor-ring');
+      let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+      let ringX = mouseX, ringY = mouseY;
+
+      window.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        if (dot) {
+          dot.style.left = `${mouseX}px`;
+          dot.style.top = `${mouseY}px`;
+        }
+      });
+
+      const renderCursor = () => {
+        ringX += (mouseX - ringX) * 0.18;
+        ringY += (mouseY - ringY) * 0.18;
+        if (ring) {
+          ring.style.left = `${ringX}px`;
+          ring.style.top = `${ringY}px`;
+        }
+        requestAnimationFrame(renderCursor);
+      };
+      requestAnimationFrame(renderCursor);
+
+      document.querySelectorAll('a, button, input, textarea, select').forEach((el) => {
+        el.addEventListener('mouseenter', () => ring?.classList.add('active'));
+        el.addEventListener('mouseleave', () => ring?.classList.remove('active'));
+      });
+    </script>
+  </body>
+</html>

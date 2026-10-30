@@ -1,0 +1,26 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getCollection, type CollectionEntry } from 'astro:content';
+
+const posts: CollectionEntry<'tech'>[] = (await getCollection('tech')).sort(
+  (a: CollectionEntry<'tech'>, b: CollectionEntry<'tech'>) =>
+    b.data.date.valueOf() - a.data.date.valueOf()
+);
+
+const formatDate = (date: Date) => date.toISOString().split('T')[0];
+---
+
+<BaseLayout title="AXIOM — Tech Compendium">
+  <section>
+    {posts.map((post: CollectionEntry<'tech'>) => (
+      <a href={`/tech/${post.id}`} class="index-row">
+        <span class="mono-meta">{formatDate(post.data.date)}</span>
+        <div>
+          <div class="row-title">{post.data.title}</div>
+          <div class="row-summary">{post.data.summary}</div>
+        </div>
+        <span class="tag">{post.data.category}</span>
+      </a>
+    ))}
+  </section>
+</BaseLayout>

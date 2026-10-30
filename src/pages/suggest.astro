@@ -1,0 +1,79 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Suggest a Technology — AXIOM">
+  <article class="prose">
+    <header class="post-header">
+      <span class="mono-meta">CONTRIBUTE // QUEUE</span>
+      <h1 class="post-title">Suggest a Tech Entry</h1>
+      <p class="row-summary" style="font-size: 1rem;">
+        Submit an emerging technology, paper, or system architecture worth indexing.
+      </p>
+    </header>
+
+    <form id="suggest-form" class="minimal-form">
+      <div class="form-group">
+        <label>Technology / Paper Name</label>
+        <input type="text" id="tech-name" placeholder="e.g., WebGPU Compute Shaders, Mamba SSM" required />
+      </div>
+
+      <div class="form-group">
+        <label>Domain</label>
+        <select id="tech-domain">
+          <option value="Computer Graphics">Computer Graphics</option>
+          <option value="Systems & Hardware">Systems & Hardware</option>
+          <option value="AI & Signal Processing">AI & Signal Processing</option>
+          <option value="Web Architecture">Web Architecture</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Why it matters & Reference URL</label>
+        <textarea id="tech-notes" rows="4" placeholder="Key capability, industrial relevance, or link to paper/GitHub..." required></textarea>
+      </div>
+
+      <button type="submit" class="submit-btn">ADD TO RESEARCH QUEUE</button>
+    </form>
+
+    <h2>Current Research Queue</h2>
+    <div id="queue-list"></div>
+  </article>
+
+  <script>
+    const form = document.getElementById('suggest-form') as HTMLFormElement | null;
+    const queueList = document.getElementById('queue-list');
+    const STORAGE_KEY = 'axiom_research_queue';
+
+    const renderQueue = () => {
+      if (!queueList) return;
+      const items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      if (items.length === 0) {
+        queueList.innerHTML = `<p class="mono-meta">No pending suggestions in queue.</p>`;
+        return;
+      }
+      queueList.innerHTML = items.map((item: { name: string; domain: string; notes: string }) => `
+        <div style="padding: 1rem 0; border-bottom: 1px solid var(--border);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong>${item.name}</strong>
+            <span class="tag">${item.domain}</span>
+          </div>
+          <p class="row-summary" style="margin-top:0.35rem;">${item.notes}</p>
+        </div>
+      `).join('');
+    };
+    renderQueue();
+
+    form?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = (document.getElementById('tech-name') as HTMLInputElement).value;
+      const domain = (document.getElementById('tech-domain') as HTMLSelectElement).value;
+      const notes = (document.getElementById('tech-notes') as HTMLTextAreaElement).value;
+      const items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      items.unshift({ name, domain, notes });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      form.reset();
+      renderQueue();
+    });
+  </script>
+</BaseLayout>

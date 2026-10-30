@@ -1,0 +1,156 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('tech');
+  return posts.map((post: CollectionEntry<'tech'>) => ({
+    params: { id: post.id },
+    props: { post },
+  }));
+}
+
+interface Props {
+  post: CollectionEntry<'tech'>;
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const formatDate = (date: Date) => date.toISOString().split('T')[0];
+---
+
+<BaseLayout title={`${post.data.title} — AXIOM`}>
+  <article>
+    <header class="post-header">
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <span class="mono-meta">{formatDate(post.data.date)}</span>
+        <span class="tag">{post.data.category}</span>
+        {post.data.maturity && <span class="tag">{post.data.maturity}</span>}
+      </div>
+      <h1 class="post-title">{post.data.title}</h1>
+      <p class="row-summary" style="font-size: 1rem;">{post.data.summary}</p>
+    </header>
+
+    {post.data.architectureImage && (
+      <figure>
+        <img src={post.data.architectureImage} alt={`${post.data.title} Architecture`} class="media-frame" />
+        {post.data.architectureCaption && (
+          <figcaption class="media-caption">FIG 01 // {post.data.architectureCaption}</figcaption>
+        )}
+      </figure>
+    )}
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    {post.data.youtubeId && (
+      <section class="prose">
+        <h2>Tech Demo & Walkthrough</h2>
+        <div class="video-wrapper">
+          <iframe
+            src={`https://www.youtube-nocookie.com/embed/${post.data.youtubeId}`}
+            title="YouTube video player"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+          ></iframe>
+        </div>
+      </section>
+    )}
+
+    {post.data.references && post.data.references.length > 0 && (
+      <footer class="references-box">
+        <h3>References & Further Reading</h3>
+        <ul class="ref-list">
+          {post.data.references.map((ref: { title: string; url: string }) => (
+            <li>
+              <a href={ref.url} target="_blank" rel="noopener noreferrer">
+                {ref.title} ↗
+              </a>
+            </li>
+          ))}
+        </ul>
+      </footer>
+    )}
+
+    <!-- Like ButtonBar -->
+    <div class="interaction-bar">
+      <span class="mono-meta">Found this technical breakdown useful?</span>
+      <button id="like-btn" class="like-btn" data-slug={post.id}>
+        <span>▲ ENDORSE</span>
+        <span id="like-count">0</span>
+      </button>
+    </div>
+
+    <!-- Comments Section (Local + Ready for Giscus GitHub Discussions) -->
+    <section class="references-box" style="margin-top: 2rem;">
+      <h3>Discussion & Notes</h3>
+      <form id="comment-form" class="minimal-form" style="margin-bottom: 2rem;">
+        <div class="form-group">
+          <input type="text" id="comment-author" placeholder="Name or Handle" required />
+        </div>
+        <div class="form-group">
+          <textarea id="comment-body" rows="3" placeholder="Add a technical note, benchmark, or reference..." required></textarea>
+        </div>
+        <button type="submit" class="submit-btn">POST NOTE</button>
+      </form>
+      <div id="comments-list"></div>
+    </section>
+  </article>
+
+  <script>
+    const likeBtn = document.getElementById('like-btn');
+    const likeCount = document.getElementById('like-count');
+    const slug = likeBtn?.getAttribute('data-slug') || 'default';
+
+    // Likes state
+    const likeKey = `axiom_likes_${slug}`;
+    const likedKey = `axiom_liked_${slug}`;
+    let count = parseInt(localStorage.getItem(likeKey) || '1', 10);
+    let isLiked = localStorage.getItem(likedKey) === 'true';
+
+    if (likeCount) likeCount.textContent = String(count);
+    if (isLiked) likeBtn?.classList.add('liked');
+
+    likeBtn?.addEventListener('click', () => {
+      isLiked = !isLiked;
+      count = isLiked ? count + 1 : count - 1;
+      localStorage.setItem(likeKey, String(count));
+      localStorage.setItem(likedKey, String(isLiked));
+      if (likeCount) likeCount.textContent = String(count);
+      likeBtn.classList.toggle('liked', isLiked);
+    });
+
+    // Comments state
+    const commentForm = document.getElementById('comment-form') as HTMLFormElement | null;
+    const commentsList = document.getElementById('comments-list');
+    const commentsKey = `axiom_comments_${slug}`;
+
+    const renderComments = () => {
+      if (!commentsList) return;
+      const saved = JSON.parse(localStorage.getItem(commentsKey) || '[]');
+      commentsList.innerHTML = saved.map((c: { author: string; date: string; body: string }) => `
+        <div style="padding: 1rem 0; border-bottom: 1px solid var(--border);">
+          <div class="mono-meta" style="margin-bottom: 0.3rem;">${c.author} // ${c.date}</div>
+          <p style="font-size: 0.92rem;">${c.body}</p>
+        </div>
+      `).join('');
+    };
+    renderComments();
+
+    commentForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const author = (document.getElementById('comment-author') as HTMLInputElement).value;
+      const body = (document.getElementById('comment-body') as HTMLTextAreaElement).value;
+      const saved = JSON.parse(localStorage.getItem(commentsKey) || '[]');
+      saved.unshift({
+        author,
+        body,
+        date: new Date().toISOString().split('T')[0]
+      });
+      localStorage.setItem(commentsKey, JSON.stringify(saved));
+      commentForm.reset();
+      renderComments();
+    });
+  </script>
+</BaseLayout>
