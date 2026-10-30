@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1540" viewBox="0 0 1440 1540" role="img" aria-labelledby="title desc">
+  <title id="title">Inside a decoder-only Transformer language model</title>
+  <desc id="desc">A flow diagram showing text or multimodal input becoming tokens and embeddings, passing through repeated Transformer blocks containing causal self-attention and a feed-forward network, then producing next-token probabilities. A side panel explains the key-value cache and inference loop.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1421"/>
+      <stop offset="1" stop-color="#111f30"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74e0d0"/>
+      <stop offset="1" stop-color="#5ba9d8"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b9a4f6"/>
+      <stop offset="1" stop-color="#8e9ee7"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#020811" flood-opacity=".28"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="8" refY="6" orient="auto">
+      <path d="M1 1 L9 6 L1 11" fill="none" stroke="#80cfc9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .eyebrow{font:600 16px Arial,sans-serif;letter-spacing:3px;fill:#80cfc9}
+      .headline{font:700 40px Arial,sans-serif;fill:#edf4f8}
+      .subhead{font:400 19px Arial,sans-serif;fill:#9db1c2}
+      .label{font:700 20px Arial,sans-serif;fill:#edf4f8}
+      .body{font:400 16px Arial,sans-serif;fill:#b6c6d3}
+      .small{font:400 14px Arial,sans-serif;fill:#9db1c2}
+      .tiny{font:600 13px Arial,sans-serif;letter-spacing:1.4px;fill:#80cfc9}
+      .node{fill:#17283a;stroke:#365064;stroke-width:1.5}
+      .nodeA{fill:#15333b;stroke:#4da99f;stroke-width:1.6}
+      .nodeV{fill:#272741;stroke:#9186d6;stroke-width:1.5}
+      .nodeGold{fill:#352f24;stroke:#c79d58;stroke-width:1.5}
+      .line{stroke:#80cfc9;stroke-width:2.4;fill:none;marker-end:url(#arrow)}
+      .dashed{stroke:#7f9cad;stroke-width:1.7;stroke-dasharray:7 7;fill:none}
+    </style>
+  </defs>
+
+  <rect width="1440" height="1540" rx="30" fill="url(#bg)"/>
+  <g opacity=".18" stroke="#6b879b" stroke-width="1">
+    <path d="M80 130H1360M80 1410H1360"/>
+    <path d="M120 80V1460M1320 80V1460" stroke-dasharray="3 12"/>
+  </g>
+
+  <text x="112" y="102" class="eyebrow">AI SYSTEMS / ARCHITECTURE NOTE</text>
+  <text x="112" y="158" class="headline">Inside a decoder-only Transformer</text>
+  <text x="112" y="194" class="subhead">A simplified path from the input sequence to the next-token prediction</text>
+
+  <!-- Main pipeline -->
+  <g filter="url(#shadow)">
+    <rect x="150" y="240" width="780" height="106" rx="18" class="node"/>
+    <rect x="150" y="240" width="8" height="106" rx="4" fill="url(#accent)"/>
+    <text x="190" y="279" class="tiny">01 / INPUT</text>
+    <text x="190" y="313" class="label">Prompt sequence</text>
+    <text x="470" y="310" class="body">Text · instructions · conversation history</text>
+    <rect x="720" y="260" width="175" height="58" rx="12" class="nodeGold"/>
+    <text x="807" y="284" text-anchor="middle" class="small">Optional modality</text>
+    <text x="807" y="304" text-anchor="middle" class="small">encoders / adapters</text>
+
+    <rect x="150" y="395" width="780" height="96" rx="18" class="nodeA"/>
+    <text x="190" y="432" class="tiny">02 / TOKENIZE</text>
+    <text x="190" y="465" class="label">Tokenizer → token IDs</text>
+    <text x="550" y="459" class="body">A sequence of discrete integer IDs</text>
+
+    <rect x="150" y="540" width="780" height="96" rx="18" class="node"/>
+    <text x="190" y="577" class="tiny">03 / EMBED</text>
+    <text x="190" y="610" class="label">Embedding lookup + position information</text>
+    <text x="688" y="606" class="body">Vectors</text>
+
+    <rect x="150" y="685" width="780" height="420" rx="22" fill="#111f2e" stroke="#638092" stroke-width="1.6"/>
+    <rect x="172" y="704" width="736" height="54" rx="12" fill="#1d3447"/>
+    <text x="202" y="738" class="tiny">04 / REPEATED TRANSFORMER BLOCKS</text>
+    <text x="877" y="738" text-anchor="end" class="small">× L layers</text>
+
+    <rect x="190" y="790" width="700" height="118" rx="16" class="nodeV"/>
+    <text x="222" y="827" class="tiny">A / ATTENTION SUB-LAYER</text>
+    <text x="222" y="865" class="label">Causal self-attention</text>
+    <text x="570" y="850" class="body">Q · K · V projections</text>
+    <text x="570" y="875" class="small">RoPE / position signal · causal mask</text>
+
+    <rect x="190" y="944" width="700" height="118" rx="16" class="nodeA"/>
+    <text x="222" y="981" class="tiny">B / FEED-FORWARD SUB-LAYER</text>
+    <text x="222" y="1019" class="label">Dense FFN or routed MoE experts</text>
+    <text x="665" y="1004" class="body">SwiGLU · expert routing</text>
+    <text x="665" y="1029" class="small">Processes each token position</text>
+    <text x="540" y="1084" text-anchor="middle" class="small">Residual connections + normalisation wrap around both sub-layers</text>
+
+    <rect x="150" y="1150" width="780" height="102" rx="18" class="node"/>
+    <text x="190" y="1188" class="tiny">05 / OUTPUT HEAD</text>
+    <text x="190" y="1225" class="label">Final norm → unembedding → logits</text>
+    <text x="650" y="1217" class="body">Scores for the next token</text>
+
+    <rect x="150" y="1300" width="780" height="98" rx="18" class="nodeGold"/>
+    <text x="190" y="1338" class="tiny">06 / SELECT + REPEAT</text>
+    <text x="190" y="1374" class="label">Sampling / decoding → next token</text>
+    <text x="620" y="1367" class="body">Append token and run again</text>
+  </g>
+
+  <!-- Connectors -->
+  <path d="M540 346V391" class="line"/>
+  <path d="M540 491V536" class="line"/>
+  <path d="M540 636V681" class="line"/>
+  <path d="M540 1105V1146" class="line"/>
+  <path d="M540 1252V1296" class="line"/>
+  <path d="M540 1398V1440H1050V293H938" class="dashed"/>
+  <text x="780" y="1430" class="small">Generated token joins the next input sequence</text>
+
+  <!-- Side notes -->
+  <g filter="url(#shadow)">
+    <rect x="990" y="395" width="330" height="355" rx="20" class="node"/>
+    <text x="1024" y="438" class="tiny">INFERENCE MEMORY</text>
+    <text x="1024" y="480" class="label">KV cache</text>
+    <text x="1024" y="518" class="body">Stores earlier keys and values</text>
+    <text x="1024" y="543" class="body">so they do not need to be</text>
+    <text x="1024" y="568" class="body">recomputed for every new token.</text>
+    <path d="M1024 602H1285" stroke="#365064"/>
+    <text x="1024" y="641" class="small">Cache size grows with:</text>
+    <text x="1024" y="675" class="body">• context length</text>
+    <text x="1024" y="704" class="body">• layers and KV heads</text>
+    <text x="1024" y="733" class="body">• batch size and precision</text>
+
+    <rect x="990" y="790" width="330" height="315" rx="20" class="nodeV"/>
+    <text x="1024" y="834" class="tiny">SERVING STACK</text>
+    <text x="1024" y="876" class="label">The runtime matters</text>
+    <text x="1024" y="918" class="body">Batching · quantization</text>
+    <text x="1024" y="947" class="body">GPU kernels · scheduling</text>
+    <text x="1024" y="976" class="body">Memory + interconnect</text>
+    <path d="M1024 1004H1285" stroke="#514d7d"/>
+    <text x="1024" y="1043" class="small">Architecture is only one part</text>
+    <text x="1024" y="1067" class="small">of real-world inference speed.</text>
+  </g>
+
+  <path d="M890 848H960V570H986" class="dashed"/>
+  <text x="980" y="1170" class="tiny">A USEFUL BASELINE, NOT A UNIVERSAL BLUEPRINT</text>
+  <text x="980" y="1205" class="small">Multimodal, encoder-decoder and hybrid</text>
+  <text x="980" y="1228" class="small">models can add or change these stages.</text>
+
+  <text x="112" y="1480" class="small">Simplified conceptual diagram · individual implementations vary by model family</text>
+  <text x="1320" y="1480" text-anchor="end" class="tiny">LLM / 01</text>
+</svg>

@@ -1,216 +1,344 @@
 ---
-title: "Large Language Models: Inside the Transformer and Beyond"
+title: "Inside Large Language Models: From Tokens to Transformers and Beyond"
 date: 2026-10-30
 category: "AI & Systems"
 maturity: "Production-Ready"
-summary: "How modern LLMs work down to the tensor level—from tokenization, RoPE, and KV caches to Mixture-of-Experts, test-time reasoning, system metrics, and how every major lab's architecture differs."
+summary: "A practical tour of how modern LLMs turn tokens into answers, why attention and memory matter, how models are trained and served, and what today's public architecture reports actually tell us."
 architectureImage: "/images/llm-transformer-stack.svg"
-architectureCaption: "The modern decoder-only Transformer stack: byte-level BPE tokenizer, embedding lookup, N layers of RMSNorm, Grouped-Query or Multi-Head Latent Attention with RoPE and KV caching, SwiGLU or Sparse MoE feed-forward blocks, and the final unembedding head."
+architectureCaption: "A simplified decoder-only Transformer: input tokens move through repeated attention and feed-forward blocks before the model scores the next token. Multimodal models add extra input pathways, while inference systems manage the KV cache and hardware."
 youtubeId: "wjZofJX0v4M"
 references:
   - title: "Attention Is All You Need (Vaswani et al., 2017)"
     url: "https://arxiv.org/abs/1706.03762"
-  - title: "The Llama 3 Herd of Models (Meta AI)"
-    url: "https://arxiv.org/abs/2407.21783"
-  - title: "DeepSeek-V3 Technical Report (DeepSeek-AI)"
+  - title: "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    url: "https://arxiv.org/abs/2104.09864"
+  - title: "FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision"
+    url: "https://arxiv.org/abs/2407.08608"
+  - title: "The Llama 4 Herd of Models (Meta AI)"
+    url: "https://ai.meta.com/blog/llama-4-multimodal-intelligence/"
+  - title: "DeepSeek-V3 Technical Report"
     url: "https://arxiv.org/abs/2412.19437"
   - title: "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via RL"
     url: "https://arxiv.org/abs/2501.12948"
-  - title: "FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision"
-    url: "https://arxiv.org/abs/2407.08608"
-  - title: "RoFormer: Enhanced Transformer with Rotary Position Embedding (Su et al.)"
-    url: "https://arxiv.org/abs/2104.09864"
-  - title: "Mamba-2: Transformers are SSMs (Dao & Gu)"
-    url: "https://arxiv.org/abs/2405.21060"
+  - title: "Introducing DeepSeek-V4.1-Flash (DeepSeek)"
+    url: "https://www.deepseek.com/en/news/deepseek-v4-1-flash/"
+  - title: "Qwen3.8-Flash-Next: A New Architecture, Towards Ultimate Cost-Efficiency (Alibaba Cloud)"
+    url: "https://www.alibabacloud.com/blog/qwen3-8-flash-next-a-new-architecture-towardsultimate-cost-efficiency_603501"
+  - title: "Mistral Large 4 (Le Chonk) Is Now Open Weight (Mistral)"
+    url: "https://mistral.ai/news/mistral-large-4-oss/"
+  - title: "Alibaba's 2026 Qwen Roadmap"
+    url: "https://www.alibabacloud.com/blog/alibaba-unveils-roadmap-on-full-stack-ai-strategy-from-chips-cloud-infrastructure-models-to-agents_603589"
+  - title: "Gemini 4 Argon Model Card (Google DeepMind)"
+    url: "https://deepmind.google/models/model-cards/gemini-4-argon/"
+  - title: "Claude Model System Cards (Anthropic)"
+    url: "https://www.anthropic.com/system-cards"
+  - title: "OpenAI Deployment Safety Hub: System Cards"
+    url: "https://deploymentsafety.openai.com/"
+  - title: "Transformers are SSMs: Structured State Space Duality (Dao & Gu)"
+    url: "https://proceedings.mlr.press/v235/dao24a.html"
 ---
 
-*Updated October 30, 2026 · roughly a 18-minute read*
+*Updated October 30, 2026 · roughly a 16-minute read*
 
 ## Preface: the next-token engine
 
-Strip away the chat interfaces, voice modes, and agentic wrappers, and every Large Language Model (LLM) is doing something deceptively simple: given a sequence of numbers representing text, images, or audio, it predicts a probability distribution over what token comes next.
+A modern AI assistant can search the web, analyse an image, write code and hold a surprisingly coherent conversation. Underneath all that, a language model is doing something more specific: it takes a sequence of tokens and estimates which token should come next.
 
-Yet when you scale that objective across trillions of tokens and hundreds of billions of parameters, statistical compression turns into world modeling. To predict the next token in a complex C++ codebase or a physics derivation, the network cannot just memorize n-grams—it has to build internal representations of syntax, logic, state, and intent.
+That sounds almost too simple. But the model has learned its predictions from enormous collections of text, code and, increasingly, images, audio and video. To continue a sentence, solve a programming problem or follow a multi-step instruction, it has to build useful internal representations of language, context and patterns in the data.
 
-This piece breaks down the machinery underneath modern LLMs without the hype. We will trace a single token's journey through the modern Transformer stack, examine why memory bandwidth—not raw compute—is the real bottleneck, break down the metrics engineers actually use to measure speed and intelligence, and compare what OpenAI, Anthropic, Google, Meta, DeepSeek, Alibaba, and Mistral are actually building under the hood.
+The result is not a database of pre-written answers, nor a tiny person living inside a GPU. It is a large neural network whose learned parameters shape the probabilities it assigns to possible continuations. Repeat that process one token at a time and you get a response.
 
----
+This article follows that process from the first token to the final answer. We'll look at the Transformer architecture, attention and its memory costs, how models are trained to follow instructions, what GPU metrics actually mean, and what the latest public model reports reveal about the major AI labs.
 
-## Anatomy of a modern LLM: down to the tensor level
+## The LLM pipeline, at a glance
 
-Almost every frontier LLM today is a **decoder-only Transformer** (or a hybrid of one). While the original 2017 *Attention Is All You Need* paper had both an encoder and a decoder for machine translation, modern models dropped the encoder and evolved every single component of the decoder block for training stability and inference speed.
+The diagram below shows a common text-generation path: an input is converted into token IDs, embedded as vectors, processed by a stack of Transformer blocks, and turned into probabilities for the next token. The selected token is appended to the sequence and the process repeats.
 
-Here is what happens inside the forward pass, layer by layer:
+It is a useful baseline, not a blueprint for every model. Some systems use encoder-decoder or hybrid architectures, and multimodal models add specialised pathways for images, audio and video before or alongside the language-model stack.
 
-### 1. Tokenization (Byte-Pair Encoding)
-Neural networks cannot ingest raw strings; they operate on vectors of continuous numbers. A tokenizer splits text into sub-word units called **tokens** using algorithms like **Byte-Level Byte-Pair Encoding (BPE)**.
-* **How it works:** Starting from individual UTF-8 bytes (256 base tokens), the tokenizer iteratively merges the most frequent adjacent pairs of bytes in a massive training corpus until it reaches a fixed vocabulary size $V$.
-* **Vocabulary scaling:** Early models like GPT-2 and Llama 2 used a vocabulary of $32,000$ to $50,257$ tokens. Modern models use much larger vocabularies—**128,256** in Llama 3, **~129,000** in DeepSeek-V3, **151,646** in Qwen, and **200,000+** in GPT-4o and Gemma. A larger vocabulary compresses more characters into a single token (improving speed and multilingual/code efficiency) at the cost of a heavier embedding matrix.
+## What happens to a token?
 
-### 2. Embedding Lookup
-Each token ID (an integer between $0$ and $V-1$) indexes into an **Embedding Matrix** $W_E \in \mathbb{R}^{V \times d_{\text{model}}}$. For a model with hidden dimension $d_{\text{model}} = 4096$ (typical for an 8B model) or $d_{\text{model}} = 8192$ to $16384$ (for 70B–400B+ models), each token becomes a dense vector of floating-point numbers.
+### 1. Tokenization: turning text into IDs
 
-### 3. Pre-Normalization with RMSNorm
-The original 2017 Transformer applied `LayerNorm` *after* the attention and feed-forward sub-layers (Post-Norm), which caused gradient explosions in deep networks without careful warm-up. Modern LLMs universally use **Pre-Norm** (normalizing inputs *before* each sub-layer, leaving a clean residual stream highway for gradients) and replace standard `LayerNorm` with **RMSNorm** (Root Mean Square Normalization):
+A neural network does not read a sentence as letters on a screen. It receives numbers. A **tokenizer** splits the input into pieces—tokens—and maps each piece to an integer ID.
 
-$$\text{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}} \odot \gamma$$
+A token might be a whole word, part of a word, punctuation, whitespace or a byte-level fragment. Common approaches include **Byte-Pair Encoding (BPE)** and **Unigram** tokenization. Byte-level tokenizers can represent arbitrary text by starting from bytes and learning useful merges, but not every model uses the same tokenizer or vocabulary.
 
-By dropping the mean-centering step of standard LayerNorm, RMSNorm cuts memory-bound reduction operations and speeds up normalization by 10–15% with zero loss in accuracy.
+Why not just use one token per word? Because language is messy. Subword tokenization lets a model reuse familiar pieces across related words, names and technical terms. The trade-off is that different tokenizers split the same sentence differently, which affects context length, throughput and benchmark comparisons.
 
-### 4. Positional Encoding: RoPE (Rotary Position Embedding)
-Because self-attention processes all tokens in parallel rather than sequentially like an RNN, it has no built-in sense of word order. Instead of adding fixed sinusoidal waves to the initial embeddings, modern LLMs apply **RoPE** directly inside every attention layer.
-* **The mechanism:** RoPE pairs up dimensions of the Query ($Q$) and Key ($K$) vectors and rotates them in 2D complex space by an angle proportional to the token's position $m$ and a geometric progression of frequencies $\theta_i = b^{-2i/d}$.
-* **Why it won:** The dot product $q_m^T k_n$ between a query at position $m$ and a key at position $n$ depends **only on their relative distance $(m - n)$**.
-* **Context extension:** By increasing the base frequency $b$ (from $10,000$ up to $500,000$ or $10,000,000$) and applying frequency interpolation techniques like **YaRN** or **NTK-aware scaling**, engineers stretch context windows from 4,096 tokens out to 128K, 1M, or 2M tokens.
+### 2. Embeddings: IDs become vectors
 
-### 5. Self-Attention & The KV Cache Bottleneck
-In causal self-attention, each token projects its hidden state $x$ into three vectors via learned weight matrices: **Query ($Q$)**, **Key ($K$)**, and **Value ($V$)**. Attention scores are computed as:
+Each token ID selects a row from a learned **embedding matrix**. Instead of a number such as `1842`, the model now has a vector containing hundreds or thousands of values.
 
-$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}} + M\right)V$$
+These vectors give the network a numerical space in which it can learn relationships between tokens and their contexts. The embedding is not a dictionary definition. Its meaning comes from how the vector is used and updated throughout training.
 
-where $M$ is a causal upper-triangular mask set to $-\infty$ so token $t$ cannot peek at future tokens $t+1$.
+For text-only models, this is the usual starting point. A multimodal model may also turn image patches, audio segments or video frames into its own sequence of tokens or feature vectors, then connect them to the language model through a shared or adapted representation.
 
-During generation, recomputing $K$ and $V$ for all previous tokens at every new step would be $O(N^2)$ redundant work. Instead, engines store past Keys and Values in GPU memory—the **KV Cache**. As context length $N$ and batch size grow, the KV cache balloons to tens or hundreds of gigabytes, making memory bandwidth (reading the KV cache from VRAM to SRAM for every generated token) the primary bottleneck of LLM inference.
+### 3. The Transformer block: attention plus a feed-forward network
 
-To crush the KV cache footprint, attention evolved through four generations:
+Most widely used LLMs are based on the **Transformer**, introduced in the 2017 paper *Attention Is All You Need*. The original model used both an encoder and a decoder for machine translation. Many generative language models use a **decoder-only** design, while other systems use encoder-decoder or hybrid structures.
 
-| Attention Variant | How It Works | KV Cache Size | Used By |
-|---|---|---|---|
-| **MHA** (Multi-Head) | Every Query head has its own dedicated Key and Value head (1:1 ratio). | 100% (Baseline) | GPT-3, Llama 1, early Transformers |
-| **MQA** (Multi-Query) | All Query heads share a single Key head and a single Value head. | ~2% to 4% | PaLM, Falcon, StarCoder |
-| **GQA** (Grouped-Query) | Query heads are grouped (e.g., 8 queries share 1 KV head), balancing MHA quality with MQA speed. | ~12.5% (at 8:1 ratio) | Llama 3/4, Qwen 2.5/3, Mistral |
-| **MLA** (Multi-Head Latent) | Compresses Keys and Values jointly into a low-rank latent vector $c_t^{KV}$ before caching, then up-projects during compute. | ~5% to 7% | DeepSeek-V2, DeepSeek-V3, DeepSeek-R1 |
+A decoder-only Transformer is built by stacking many similar blocks. Each block typically contains two main operations:
 
-> Multi-Head Latent Attention (MLA) was one of the most consequential architectural leaps of the mid-2020s: it shrinks the KV cache even further than GQA while actually *outperforming* standard MHA in modeling capacity.
+1. **Self-attention**, which lets each token gather information from earlier tokens in the sequence.
+2. **A feed-forward network (FFN)**, which transforms each token's representation after attention has mixed contextual information into it.
 
-**FlashAttention (1, 2, and 3):** Even with compressed KV caches, standard attention materializes an $N \times N$ matrix in slow GPU High-Bandwidth Memory (HBM). **FlashAttention** rewrites the GPU kernel to tile $Q$, $K$, and $V$ into tiny blocks inside ultra-fast on-chip SRAM, using online softmax rescaling to compute exact attention without ever writing the $N \times N$ matrix to HBM.
+Residual connections carry information around these operations, giving the network a stable path for information and gradients. Many modern models use a pre-normalization layout, often with **RMSNorm**, although this is a common design choice rather than a universal rule.
 
-<div class="video-embed" style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;margin:2rem 0;"><iframe src="https://www.youtube-nocookie.com/embed/eMlx5fFNoYc" title="Attention in transformers, visually explained | 3Blue1Brown" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" loading="lazy" allowfullscreen></iframe></div>
+A simplified pre-norm block can be written as:
 
-*3Blue1Brown's visual breakdown of how Queries, Keys, and Values route information inside an attention head. [Watch on YouTube](https://www.youtube.com/watch?v=eMlx5fFNoYc).*
+\[
+ h' = h + \operatorname{Attention}(\operatorname{Norm}(h))
+\]
+\[
+ h_{next} = h' + \operatorname{FFN}(\operatorname{Norm}(h'))
+\]
 
-### 6. The Feed-Forward Network: SwiGLU vs. Sparse MoE
-After attention mixes information *across* tokens, a Feed-Forward Network (FFN) processes each token *individually*, storing the majority of the model's factual knowledge.
+The real implementation includes learned projections, biases or scaling choices, positional information and other details. But this gives us the main idea: attention mixes information between positions; the FFN processes the resulting representation at each position.
 
-* **SwiGLU Activation:** Modern LLMs replaced the classic two-layer ReLU MLP with a gated **SwiGLU** block using three weight matrices ($W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$):
-  $$\text{SwiGLU}(x) = \left(\text{Swish}_{\beta}(x W_{\text{gate}}) \odot x W_{\text{up}}\right) W_{\text{down}}$$
-  where $\text{Swish}(z) = z \cdot \sigma(z)$. Because it uses three matrices instead of two, the intermediate dimension is typically scaled to $\frac{8}{3}d_{\text{model}}$.
-* **Sparse Mixture-of-Experts (MoE):** In a **Dense** model (like Llama 3.1 70B), 100% of parameters fire for every single token. In a **Sparse MoE** model, the single FFN block is split into $E$ distinct "expert" FFNs (ranging from 8 large experts in Mixtral 8x7B to **256 fine-grained routed experts + 1 shared expert** in DeepSeek-V3). A lightweight router network scores each token and activates only the top-$k$ experts.
-  * **The result:** DeepSeek-V3 holds **671 billion total parameters** (massive knowledge capacity) but activates only **37 billion parameters per token** (inference speed and FLOP cost of a mid-sized model).
+### 4. Position: how the model knows what came first
 
----
+Attention by itself does not automatically know whether a token appeared at the start or the end of a sentence. The model needs some way to represent position and order.
 
-## How we got here: the architectural timeline
+One widely used method is **Rotary Position Embedding (RoPE)**. Rather than adding a positional vector once at the input, RoPE rotates pairs of dimensions in the query and key vectors by angles related to their positions. This makes attention scores sensitive to the relative positions of tokens.
 
-| Year | Milestone | Architectural Shift |
+RoPE is popular, but it is not the only option. Architectures may use learned position embeddings, relative-position biases, other positional schemes, or combinations of techniques. Some, such as Meta's Llama 4 design, interleave attention layers that use RoPE with layers that omit positional embeddings and apply a separate inference-time scaling technique.
+
+Longer context windows also require more than simply turning one frequency knob. Techniques such as interpolation and YaRN-style scaling can help a model operate beyond its original training length, but a larger advertised context window does not guarantee perfect recall across every token in that window.
+
+### 5. Self-attention: deciding what matters right now
+
+In self-attention, the hidden representation at each position is projected into three vectors:
+
+- **Query (Q):** what this position is looking for.
+- **Key (K):** what information this position offers to other positions.
+- **Value (V):** the information that can be passed along.
+
+The attention operation compares queries with keys, turns those scores into weights using softmax, and uses the weights to combine the value vectors:
+
+\[
+\operatorname{Attention}(Q,K,V) = \operatorname{softmax}\left(\frac{QK^T}{\sqrt{d_k}} + M\right)V
+\]
+
+Here, \(d_k\) is the key dimension and \(M\) is a **causal mask**. The mask prevents a token from using information from future positions. Without it, a model trained to predict the next token could cheat by looking at the answer.
+
+Attention is usually split into multiple heads. Each head can learn a different way of relating tokens, and their outputs are combined before the FFN.
+
+### 6. The KV cache: remembering the prefix efficiently
+
+Generating a response is an incremental process. Once the model has processed the prompt, it produces a token, adds it to the sequence and predicts the next one.
+
+A naive implementation could recompute the keys and values for every earlier token each time a new token is generated. Instead, inference systems store those previously computed keys and values in GPU memory. This is the **key-value cache**, or **KV cache**.
+
+The cache avoids repeating work, but it takes up memory. Its size grows with the number of layers, the sequence length, the batch size, the number of key/value heads and the precision used to store each value. Long prompts and many simultaneous users can therefore create substantial memory pressure.
+
+This is one reason attention designs have evolved:
+
+| Variant | How it works | Cache implication |
 |---|---|---|
-| **2017** | *Attention Is All You Need* (Google) | Replaces slow, sequential RNNs/LSTMs with parallelizable self-attention |
-| **2018–2020** | GPT-1, GPT-2, GPT-3 (OpenAI) | Proves scaling decoder-only autoregression from 117M to 175B unlocks few-shot learning |
-| **2022** | Chinchilla Scaling Laws (DeepMind) & FlashAttention | Shows models were under-trained on data ($20\text{ tokens per parameter}$ optimal for training compute); IO-aware kernels unlock long context |
-| **2023** | Llama 1/2 (Meta) & Mixtral 8x7B (Mistral) | Standardizes the "Llama recipe" (RoPE + RMSNorm + SwiGLU + GQA) and open-weights Sparse MoE |
-| **2024** | GPT-4o, Gemini 1.5 Pro, DeepSeek-V2/V3, o1 | Native multimodal tokenization, 1M+ context windows, Multi-Head Latent Attention (MLA), and RL-trained test-time reasoning |
-| **2025–2026** | DeepSeek-R1, o3/GPT-5 era, Claude 4, Gemini 2.5, Qwen 3, Llama 4 | Open-weight reasoning via GRPO, native FP8 training, hybrid linear/SSM attention layers, and deep tool/MCP agent loops |
+| **MHA — Multi-Head Attention** | Each query head has its own key and value head. | The reference design; largest cache among these options for comparable dimensions. |
+| **MQA — Multi-Query Attention** | All query heads share one key head and one value head. | Very small cache, but sharing can reduce flexibility. |
+| **GQA — Grouped-Query Attention** | Groups of query heads share a smaller set of key/value heads. | A practical compromise between MHA quality and MQA cache savings. |
+| **MLA — Multi-Head Latent Attention** | Compresses key/value information into a smaller latent representation before caching. | Can reduce cache requirements substantially; the exact saving depends on the model's dimensions. |
 
----
+These are not simply four generations where each new one replaces the previous one. They are design choices with different trade-offs. For example, Meta's Llama 3 family uses GQA, while DeepSeek-V2 and V3 use MLA. A model's actual cache footprint depends on its configuration, context length, batch size and cache precision—not just the name of its attention variant.
 
-## Training pipeline: from raw web text to reasoning agents
+### 7. FlashAttention: less time moving data around
 
-Building a modern LLM happens in four distinct stages, each with its own objective function and compute profile:
+There is another memory problem inside attention. A straightforward implementation can create a large matrix of attention scores, then read and write that intermediate data to high-bandwidth GPU memory (HBM).
 
-1. **Pre-Training (95%+ of total compute):** The model trains via self-supervised cross-entropy loss on 10 trillion to 30+ trillion tokens of filtered web text, code, and synthetic math/STEM data. While Chinchilla laws say a 7B model is "compute-optimal" at ~140B tokens, modern labs deliberately **over-train** small models on 15T+ tokens (like Qwen 2.5/3 and Llama 3) so the resulting model is cheap and fast to run at inference time.
-2. **Supervised Fine-Tuning (SFT) / Instruction Tuning:** A raw base model only completes documents; if you ask it a question, it might respond with five more questions. SFT trains the model on hundreds of thousands of curated `(prompt, ideal_response)` pairs, teaching chat templates, tool-calling schemas, and formatting.
-3. **Preference Alignment (RLHF vs. DPO):**
-   * **RLHF (PPO):** Trains a separate Reward Model on human preference rankings ($y_{\text{win}} \succ y_{\text{lose}}$), then optimizes the LLM using Proximal Policy Optimization with a KL-divergence penalty so it doesn't drift too far from the base model.
-   * **DPO (Direct Preference Optimization):** Mathematically reparameterizes the reward function so the LLM can be optimized *directly* on preference pairs using a simple binary cross-entropy loss—eliminating the separate reward model and unstable RL loop.
-4. **Reinforcement Learning with Verifiable Rewards (RLVR) & Test-Time Compute:** Pioneered by OpenAI's o1/o3 series and open-sourced in **DeepSeek-R1**, this stage trains the model on math, code, and logic problems where an automated grader (a compiler, unit test, or symbolic solver) provides an exact binary reward. Using **GRPO (Group Relative Policy Optimization)**—which samples a group of outputs for each prompt and uses their normalized group average as the baseline instead of a heavy critic model—the LLM autonomously discovers how to allocate **test-time compute**: generating thousands of internal Chain-of-Thought (`<think>`) tokens to test hypotheses, catch its own mistakes, and backtrack before outputting a final answer.
+**FlashAttention** changes how the calculation is scheduled. It divides queries, keys and values into blocks, performs the work in smaller pieces using fast on-chip memory, and uses an online softmax calculation to combine the results. It computes exact attention (up to normal floating-point differences) while reducing expensive memory traffic.
 
-<div class="video-embed" style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;margin:2rem 0;"><iframe src="https://www.youtube-nocookie.com/embed/kCc8FmEb1nY" title="Let's build GPT: from scratch, in code, spelled out. | Andrej Karpathy" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" loading="lazy" allowfullscreen></iframe></div>
+This is an important distinction: FlashAttention improves the efficiency of the attention calculation; it does not, by itself, eliminate the KV cache or make long context free. FlashAttention-2 and FlashAttention-3 build on the same IO-aware idea with further improvements for modern GPUs.
 
-*Andrej Karpathy building a decoder-only GPT from scratch in PyTorch—still the best hands-on walkthrough of how self-attention and autoregressive training wire together. [Watch on YouTube](https://www.youtube.com/watch?v=kCc8FmEb1nY).*
+<iframe width="100%" height="420" src="https://www.youtube-nocookie.com/embed/eMlx5fFNoYc" title="Attention in transformers, step by step — 3Blue1Brown" style="border:0; border-radius:12px;" loading="lazy" allowfullscreen></iframe>
 
----
+*3Blue1Brown's visual explanation of how queries, keys and values interact. [Watch on YouTube](https://www.youtube.com/watch?v=eMlx5fFNoYc).*
 
-## Performance metrics: speed, hardware math, and intelligence
+### 8. The feed-forward network: dense layers and expert routing
 
-Evaluating an LLM requires separating **systems performance** (how fast and cheaply the weights run on silicon) from **model capability** (how smart the outputs are).
+After attention has mixed contextual information, the FFN transforms each token's representation. A common modern activation is **SwiGLU**, a gated variant of the feed-forward network. In simplified form:
 
-### Part 1: Systems & Inference Metrics
+\[
+\operatorname{SwiGLU}(x) = (\operatorname{Swish}(xW_{gate}) \odot xW_{up})W_{down}
+\]
 
-Every LLM request has two distinct hardware phases:
-* **Prefill Phase (Compute-Bound):** The model ingests your entire prompt in parallel. Because it processes hundreds or thousands of tokens at once, GPU tensor cores perform **Matrix-Matrix Multiplication (GEMM)**, saturating compute FLOPs.
-* **Decode Phase (Memory-Bandwidth-Bound):** The model generates output one token at a time. To generate *one* single token, the GPU must stream every active weight parameter and the entire KV cache from HBM into on-chip SRAM (**Matrix-Vector Multiplication, GEMV**). Your tokens-per-second speed is almost entirely dictated by GPU memory bandwidth (e.g., 3.35 TB/s on an H100 vs. 8 TB/s on a B200), not compute TFLOPs.
+The gate controls how strongly different features pass through the block. This is one of several FFN designs used in modern Transformers.
 
-| System Metric | Definition | Why It Matters |
+A standard **dense** FFN runs the same learned network for every token. A **Mixture-of-Experts (MoE)** layer instead contains several expert networks and a small router that selects which experts process each token. Only a subset of the experts is activated for a given token, even though the model stores the parameters for all of them.
+
+That distinction creates two useful numbers:
+
+- **Total parameters:** all the model weights stored across its experts and other layers.
+- **Active parameters:** the subset used to process a particular token.
+
+DeepSeek-V3 is a well-documented example: its report describes 671 billion total parameters, with 37 billion activated per token. That does not mean it is equivalent to a dense 37B model; it still has a much larger total set of learned parameters, and serving it involves routing and distributing expert weights across hardware.
+
+MoE can increase model capacity without running every expert for every token. The trade-off is more complex routing, memory placement and communication between GPUs. Sparse does not automatically mean simple or cheap to serve.
+
+## Training: from text completion to useful behaviour
+
+The architecture is only part of the story. A model's behaviour depends heavily on how it is trained and post-trained. A simplified pipeline looks like this, although the exact recipe varies by lab and model family.
+
+### 1. Pre-training: learn to continue
+
+During pre-training, the model sees large sequences of tokens and learns to predict the next token. The training objective is commonly a form of **cross-entropy loss**: the model is penalised when it assigns low probability to the token that actually comes next.
+
+The data can include web pages, books, code, mathematics, licensed material and synthetic examples. The mix, filtering, deduplication and training schedule matter enormously, and most labs do not disclose every detail.
+
+Pre-training gives a model broad pattern knowledge. It does not automatically make it a helpful assistant. A base model may continue a document convincingly without understanding that a user expects a direct answer.
+
+### 2. Supervised fine-tuning: learn the task
+
+**Supervised Fine-Tuning (SFT)** trains the model on examples of prompts paired with desirable responses. These examples teach it how to answer questions, follow instructions, format output, refuse certain requests and use tools in the expected format.
+
+The distinction is simple: pre-training teaches the model to continue patterns; instruction tuning teaches it which kinds of continuation are useful in an assistant setting.
+
+### 3. Preference training: shape the answers
+
+A model can produce several plausible responses, but not all are equally helpful. Preference training uses comparisons or rankings to encourage better behaviour.
+
+Two familiar approaches are:
+
+- **RLHF:** human preferences are used to train a reward model, and reinforcement learning—often a method such as PPO—is used to optimise the language model against that reward, with constraints to limit unwanted drift.
+- **DPO:** Direct Preference Optimization uses preferred and rejected response pairs to update the model directly, without requiring the same separate reward-model-plus-RL pipeline.
+
+Neither label describes every detail of a modern training recipe. Labs often combine supervised data, preference data, reward models and several optimisation methods.
+
+### 4. Verifiable rewards and reasoning at inference time
+
+For tasks such as mathematics and programming, some answers can be checked automatically. A compiler can reject invalid code; unit tests can check a patch; a symbolic solver can verify a mathematical result. Training methods that use these checks are often grouped under **Reinforcement Learning with Verifiable Rewards (RLVR)**.
+
+DeepSeek-R1 is a prominent published example of reasoning-oriented reinforcement learning, including the use of **Group Relative Policy Optimization (GRPO)**. The broad idea is to generate candidate solutions, compare their outcomes against a verifiable reward and use that signal to improve the model.
+
+There is also **test-time compute**: spending more computation while answering, for example by allowing a model to explore intermediate steps, call tools, verify a result or revise an attempt. This can improve performance on difficult tasks, but it increases latency and cost. More tokens or more reasoning time are not a guarantee of a correct answer.
+
+<iframe width="100%" height="420" src="https://www.youtube-nocookie.com/embed/kCc8FmEb1nY" title="Let's build GPT from scratch — Andrej Karpathy" style="border:0; border-radius:12px;" loading="lazy" allowfullscreen></iframe>
+
+*Andrej Karpathy builds a small GPT in code, making the relationship between training, attention and generation concrete. [Watch on YouTube](https://www.youtube.com/watch?v=kCc8FmEb1nY).*
+
+## Inference: speed, memory and the cost of a token
+
+Training is where a model learns its weights. **Inference** is what happens when those weights are used to answer a request. At this stage, the model's architecture meets the realities of GPUs, memory and serving software.
+
+### Prefill versus decode
+
+An inference request is often described in two phases:
+
+- **Prefill:** the model processes the prompt. Many input tokens can be handled in parallel, so this phase often places substantial demand on matrix-multiplication throughput.
+- **Decode:** the model generates new tokens one at a time. Each step uses the model weights and the cached context to produce the next token. For small batches, this phase is often limited by moving weights and KV-cache data through memory rather than by peak arithmetic throughput alone.
+
+This is why a GPU with impressive theoretical FLOPs does not automatically produce the fastest text generation. Memory bandwidth, cache size, batch size, interconnect speed, kernel efficiency and serving strategy all matter. With larger batches, the bottleneck can shift.
+
+### Metrics worth knowing
+
+| Metric | What it measures | Why it matters |
 |---|---|---|
-| **TTFT** (Time to First Token) | Time from sending the prompt to receiving the first output token (ms). | Measures **Prefill** efficiency and network latency; critical for responsive UI and voice agents. |
-| **TPOT / ITL** (Time Per Output Token) | Average time between consecutive generated tokens (ms/token, or inverted as **Tokens/sec**). | Measures **Decode** memory bandwidth efficiency; humans read at ~5–8 tok/s, while coding agents need 100+ tok/s. |
-| **KV Cache Footprint** | $\text{Bytes} = 2 \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_{\text{head}} \times \text{seq\_len} \times \text{batch} \times \text{bytes\_per\_val}$ | Dictates how many concurrent users or how long a context window can fit in VRAM before Out-Of-Memory (OOM). |
-| **MFU** (Model FLOPs Utilization) | Ratio of achieved throughput to the theoretical peak FLOPs of the GPU cluster. | Top training runs hit **40%–55% MFU**; the rest is lost to network communication (AllReduce/All-to-All) and memory stalls. |
+| **TTFT — Time to First Token** | Time from request submission to the first generated token. | Captures prompt processing, queueing and network overhead; especially noticeable in chat and voice interfaces. |
+| **TPOT — Time Per Output Token** | Average delay between generated output tokens. | Affects how quickly a response appears once generation has started. |
+| **Tokens per second** | Output generation rate, usually reported per request or across a server. | Useful for comparing speed, but the batch size and measurement setup must be stated. |
+| **KV-cache footprint** | Memory used to store attention keys and values for the active context. | Limits context length and the number of concurrent sequences that fit in memory. |
+| **MFU — Model FLOPs Utilization** | Achieved model computation relative to the hardware's theoretical peak. | Helps assess how efficiently a training run uses its accelerator cluster. |
 
-**Quick VRAM Rule of Thumb:** To hold a model's weights in memory, multiply active storage bytes per parameter by the parameter count (plus ~20% overhead for KV cache and activations):
-* **BF16 / FP16 (16-bit):** $2\text{ bytes/param}$ (A 70B model needs $\approx 140\text{ GB}$ just for weights).
-* **FP8 (8-bit):** $1\text{ byte/param}$ (70B needs $\approx 70\text{ GB}$; supported natively on Hopper/Blackwell GPUs).
-* **INT4 / AWQ / GGUF Q4_K_M (4-bit):** $0.5\text{ bytes/param}$ (70B fits in $\approx 38\text{ GB}$; an 8B model fits in $\approx 5.5\text{ GB}$ on a laptop GPU).
+A rough KV-cache estimate for a conventional attention layer is:
 
-### Part 2: Capability & Evaluation Benchmarks
+\[
+\text{Bytes} \approx 2 \times L \times B \times T \times H_{KV} \times D_H \times S
+\]
 
-Because older benchmarks like standard MMLU (high-school/college multiple choice) and GSM8K (grade-school math) are now saturated at 90%+ and heavily contaminated in pre-training data, the industry relies on harder, contamination-resistant evaluations:
+where \(L\) is the number of layers, \(B\) the batch size, \(T\) the cached sequence length, \(H_{KV}\) the number of key/value heads, \(D_H\) the head dimension, and \(S\) the bytes per stored value. The factor of two accounts for keys and values. MLA and other compressed-cache designs need a different model-specific calculation.
 
-| Benchmark | Domain | What It Actually Tests |
+### Quantization: smaller weights, different trade-offs
+
+A model's weights do not always need to be stored in their original precision. **Quantization** represents them using fewer bits, reducing memory use and often improving throughput. The trade-off is that lower precision can affect quality, and the actual result depends on the quantization method and model.
+
+| Weight format | Approx. storage per parameter | Raw weight storage for 70B parameters |
+|---|---:|---:|
+| **FP16 / BF16** | 2 bytes | 140 GB |
+| **FP8** | 1 byte | 70 GB |
+| **4-bit** | 0.5 bytes | 35 GB |
+
+These are decimal, weights-only estimates. Real deployments need extra room for quantization scales, metadata, activations, temporary buffers and the KV cache. A model advertised as “70B at 4-bit” therefore needs more than the raw 35 GB figure to run comfortably.
+
+## How do we measure whether a model is good?
+
+Model capability is not one number. A model can be excellent at coding and mediocre at factual recall, or score well on a knowledge test while struggling to operate a real software tool. Benchmarks are useful, but each measures a slice of behaviour under a particular setup.
+
+| Benchmark | What it looks at | What to keep in mind |
 |---|---|---|
-| **Perplexity (PPL)** | Intrinsic Modeling | $\exp(\text{Cross-Entropy Loss})$. Measures how "surprised" a base model is by a held-out test corpus. Lower is better, though only comparable across models sharing the *exact same tokenizer*. |
-| **GPQA Diamond** | PhD-Level Science | 198 questions written by domain PhDs in physics, chemistry, and biology that skilled non-experts with web access fail to answer. |
-| **SWE-bench Verified** | Software Engineering | Gives an agent a real GitHub repo and an issue description; scored by whether the model's generated git patch passes the repository's actual unit tests. |
-| **LiveCodeBench** | Competitive Coding | Continuously updated problems pulled from LeetCode, AtForces, and CodeForces *after* a model's training cutoff to prevent memorization. |
-| **AIME / MATH-500** | Competition Math | Olympiad-qualifier algebra, number theory, and combinatorics problems requiring multi-step symbolic reasoning. |
-| **Humanity's Last Exam** | Frontier Reasoning | Multi-disciplinary, expert-curated questions designed to resist shortcut pattern matching. |
-| **Chatbot Arena (LMSYS)** | Human Preference | Crowdsourced blind A/B testing converted into a **Bradley-Terry Elo score**—the gold standard for real-world vibe and instruction following. |
+| **Perplexity (PPL)** | How well a model predicts a held-out text corpus. | Lower is better on the same evaluation setup; tokenizer differences make direct comparisons difficult. |
+| **GPQA Diamond** | Graduate-level science questions in biology, chemistry and physics. | A compact, difficult multiple-choice test—not a measure of all scientific reasoning. |
+| **SWE-bench Verified** | Whether an agent can resolve real GitHub issues and pass the associated tests. | Scores depend on the agent scaffold, tools, model settings and evaluation environment, not just the base model. |
+| **LiveCodeBench** | Coding problems collected over time, including newer tasks. | Useful for reducing contamination from old public problems; still reflects a particular coding format. |
+| **AIME / MATH** | Competition-style mathematics. | Tests multi-step mathematical problem solving, but does not cover every form of reasoning. |
+| **Humanity's Last Exam** | Broad, difficult questions across specialist domains. | Designed to be challenging; its results should be read alongside methodology and tool-use conditions. |
+| **Chatbot Arena** | Human preference in blind side-by-side comparisons. | Measures which answer people prefer, not necessarily factual accuracy or task completion. |
 
----
+A benchmark score is a measurement, not a personality test for a model. Always check the date, prompt format, number of attempts, tool access, model version and whether the score was produced by the model alone or by a larger agent system.
 
-## Who builds what: the major labs and how their architectures differ
+## What are the major labs building?
 
-Just like game studios split between commercial and proprietary engines, the LLM ecosystem splits into **closed frontier APIs** (optimized for massive cloud clusters) and **open-weight models** (which you can download, inspect, quantize, and run locally via Ollama, vLLM, or SGLang).
+This is where it is important to separate **what is published** from what people infer. Some labs release detailed technical reports and downloadable weights. Others publish system cards describing capabilities, training approaches and safety evaluations without disclosing the full layer-by-layer architecture. A confident-looking table of secret model internals is still guesswork if the lab has not published those details.
 
-| Lab / Creator | Flagship Families | Weights | Core Architecture | Signature Technical Bet |
-|---|---|---|---|---|
-| **OpenAI** | GPT-4o, GPT-4.5/5 series, o1 / o3 / o4-mini | Proprietary (plus select open-weight releases) | Sparse MoE + RL-trained test-time compute | Pioneered large-scale test-time reasoning (`o`-series) and native omni-modal (audio/vision/text) streaming |
-| **Anthropic** | Claude 3.5 / 3.7 / 4 (Haiku, Sonnet, Opus) | Proprietary | Dense & Sparse Transformers with hybrid reasoning | Industry benchmark for agentic coding (SWE-bench), Constitutional AI, and creator of the **Model Context Protocol (MCP)** |
-| **Google DeepMind** | Gemini 1.5 / 2.0 / 2.5 (Pro, Flash) & Gemma 2/3 | Proprietary (Gemini) / Open (Gemma) | Sparse MoE co-designed for Google TPUs | Native multimodality from pre-training day one + **1M to 2M+ token context** via Ring Attention |
-| **Meta AI** | Llama 3.1 / 3.3 (8B–405B), Llama 4 (Scout, Maverick) | Open-Weight | Dense GQA (Llama 3) $\rightarrow$ Multimodal MoE (Llama 4) | Ignited the open-weight ecosystem; shifted from pure dense 405B to interleaved MoE with up to 10M context in Llama 4 |
-| **DeepSeek** | DeepSeek-V3 (671B), DeepSeek-R1 | Open-Weight (MIT) | Fine-Grained MoE (37B active) + **MLA** | Invented Multi-Head Latent Attention, auxiliary-loss-free load balancing, native FP8 training, and open-source GRPO reasoning |
-| **Alibaba Cloud** | Qwen 2.5 / Qwen 3, QwQ | Open-Weight (Apache 2.0) | Dense (0.5B–72B) & Fine-Grained MoE | Dominant open-weight workhorses across every size bracket; hybrid thinking/non-thinking modes in Qwen 3 |
-| **Mistral AI** | Mistral Large, Mixtral, Codestral, Pixtral | Open & Commercial tiers | Sliding Window Attention, GQA, and Sparse MoE | High-efficiency European models optimized for enterprise deployment, low-latency code completion, and local edge hardware |
+The following is a snapshot of representative, publicly described designs as of October 30, 2026. It is not a ranking, and it is not a complete inventory of every model a lab offers.
 
-### Key architectural philosophies explained
+| Lab / family | What public material tells us | Availability and caveat |
+|---|---|---|
+| **OpenAI — GPT-6 family** | Public system cards discuss training approaches, modalities, capabilities and safety evaluations. | Proprietary models. The published cards are not full architecture specifications, so exact layer counts or dense/MoE configuration should not be guessed. |
+| **Anthropic — Claude 5.x** | Model system cards document capabilities, evaluations and deployment safeguards. | Proprietary models. Public cards provide useful transparency, but not a complete architectural blueprint. |
+| **Google DeepMind — Gemini 4 Argon** | Its model card describes a Transformer-based, sparse Mixture-of-Experts model with native text, vision and audio support. | Proprietary. Google publishes a model card, but not downloadable model weights or every implementation detail. |
+| **Meta — Llama 4 Scout and Maverick** | Meta describes natively multimodal MoE models and its iRoPE approach, which interleaves attention layers with and without RoPE. | Downloadable weights, subject to Meta's licence. “Open-weight” is more precise than calling the release fully open source. |
+| **DeepSeek — V3 and V4.1-Flash** | V3 combines MoE with Multi-Head Latent Attention. DeepSeek's September 2026 V4.1-Flash announcement describes a 552B-parameter MoE using an asymmetric causal encoder-decoder design, with 8B active parameters on input and 16B on output. | Public reports make parts of this family relatively inspectable. The V4.1-Flash figures are vendor-reported specifications, not an independent benchmark. |
+| **Alibaba — Qwen3.8 / Qwen4 roadmap** | Qwen3.8-Flash-Next is a multimodal MoE hybrid: three of every four layers use Gated DeltaNet, with Qwen Sparse Attention in the remaining layer. It also adds gated residuals and n-gram embeddings. Alibaba describes it as an early preview of the architecture intended for Qwen4. | Qwen3.8-Flash-Next has downloadable weights. Alibaba said Qwen4 was still in training in its September 2026 roadmap update; an announced roadmap is not a released model. |
+| **Mistral — Large 4 (Le Chonk)** | Mistral describes a natively multimodal, hybrid instruction-and-reasoning MoE with about 1T total parameters and 52B active parameters. | Weights were released on October 29, 2026 under Mistral's open-weight licence. Mistral said a fuller technical report was still to come, so the public architecture description remains high-level. |
 
-1. **Meta's Dense-to-MoE Pivot (Llama 3 vs. Llama 4):** For Llama 3.1 (up to 405B parameters), Meta famously avoided Mixture-of-Experts to maximize training stability on 16,384 H100 GPUs using 4D parallelism (Tensor, Pipeline, Context, and Data Parallelism). However, serving a 405B dense model requires reading 405B weights for every single token. With **Llama 4** (*Scout* and *Maverick*), Meta switched to a natively multimodal Mixture-of-Experts architecture using **iRoPE** (interleaved attention layers without positional embeddings plus temperature scaling) to push context lengths into the millions while keeping active parameters low.
-2. **DeepSeek's Hardware-Co-Designed Efficiency:** Operating under hardware constraints, DeepSeek re-engineered the Transformer from first principles in **DeepSeek-V3** and **R1**. Beyond **MLA** (which cuts KV cache by ~90%) and **256 fine-grained experts**, they introduced **Multi-Token Prediction (MTP)** (predicting the next 2 tokens simultaneously to densify training signals and speed up speculative decoding) and wrote custom PTX GPU instructions to overlap inter-node InfiniBand communication completely behind computation.
-3. **Google's Long-Context & TPU Stack (Gemini & Gemma):** Because Google trains and serves on custom **TPU v5p and Trillium** pods connected via optical circuit switches in 3D torus topologies, Gemini models are built around **Ring Attention** (splitting million-token sequences across chips in a ring so KV blocks circulate while compute happens simultaneously). Their open-weight **Gemma 2 and 3** models bring tricks like **interleaved local sliding-window and global attention** (alternating 5 local layers of 1024–4096 tokens with 1 global layer) and logit soft-capping down to laptops.
-4. **Beyond Pure Transformers: State Space Models (Mamba) & Hybrids:** Because Transformer attention scales quadratically $O(N^2)$ during prefill and requires a growing KV cache during decode, researchers built **Selective State Space Models (Mamba / Mamba-2)** and **Linear Attention** variants (like Gated DeltaNet). These compress the entire past context into a fixed-size recurrent state, giving $O(1)$ memory per token and linear $O(N)$ scaling. Pure SSMs struggle with exact "needle-in-a-haystack" copy-paste recall, so the industry converged on **Hybrid Architectures** (like AI21's Jamba, NVIDIA's Nemotron-H, and hybrid Qwen/Mistral variants) that interleave 7 Mamba/Linear layers with 1 full-attention layer—getting constant-memory speed *and* exact recall.
+A few examples make the differences clearer:
 
----
+- **DeepSeek-V3** is a useful case study in MoE and cache optimisation. Its published report gives unusually concrete details, including total and active parameter counts, MLA and expert routing.
+- **Llama 4** shows how a model family can combine multimodal training, MoE and a particular positional strategy. Its iRoPE description is specific to that design, not a new rule that every Transformer follows.
+- **Qwen3.8-Flash-Next** is an example of a hybrid approach: it combines recurrent-style Gated DeltaNet layers with sparse attention, aiming to compress long histories while retaining a route for more precise retrieval.
+- **Mistral Large 4** illustrates the scale of recent open-weight MoE models, while also showing why it is worth distinguishing an announcement from a full technical report.
+- **Gemini 4 Argon** is a reminder that some frontier architecture details are now published in model cards, even when the model itself remains proprietary.
 
-## Which model or architecture fits which problem?
+## Beyond the standard Transformer
 
-If you are building with LLMs or running them on your own hardware, here is how to match the architecture to the job:
+Transformers remain central to modern LLMs, but they are not the only way to process sequences.
 
-| If you are building... | What to use & why |
-|---|---|
-| **Complex multi-step coding, math, or architecture planning** | **Reasoning / RLVR models** (Claude Sonnet/Opus with extended thinking, OpenAI o3/o4-mini, DeepSeek-R1, Qwen3-Thinking). Pay the TTFT latency cost to let test-time compute verify logic. |
-| **Low-latency UI features, autocomplete, or voice agents** | **Small Dense or Flash-tier MoEs** (Gemini Flash, Claude Haiku, Qwen 2.5/3 7B–14B) combined with **Speculative Decoding** for high TPOT/tokens-per-second. |
-| **Massive repository or multi-document analysis without RAG** | **Ring-Attention / Interleaved Local-Global models** (Gemini Pro/Flash 1M–2M context, Llama 4 Scout) where prefill cache sharing (Context Caching) cuts repeated prompt costs by 75%+. |
-| **Local execution on a consumer laptop GPU (8 GB–16 GB VRAM)** | **4-bit quantized (Q4_K_M / AWQ) Dense 7B–14B or Small MoE models** (Qwen 2.5/3Coder, Llama 3.1 8B, Gemma 3, DeepSeek-R1-Distill) via Ollama or llama.cpp. |
-| **High-throughput production self-hosting on cloud GPUs** | **Sparse MoE with GQA or MLA** served on **vLLM** or **SGLang** using **PagedAttention** (which manages KV cache like OS virtual memory pages to eliminate fragmentation) and **FP8 quantization**. |
+**State-space models (SSMs)** such as Mamba use a recurrent state that is updated as the sequence is processed. This can avoid keeping a conventional attention KV entry for every previous token, which is attractive for long sequences and streaming workloads. Mamba-2's research connects state-space models and attention more closely than the names might suggest.
 
-The takeaway mirrors every other layer of systems engineering: there is no magic inside an LLM. It is matrix multiplication, clever KV cache compression, and reinforcement learning scaled up to the limits of memory bandwidth. Understand the data path from BPE token to SwiGLU expert, and you can predict exactly where any model will shine—and where it will bottleneck.
+There are also **linear-attention** methods and hybrid designs that mix attention with state-space or other sequence-processing layers. They aim to balance the strengths of each approach: attention's flexible access to earlier tokens and alternative sequence models' potentially more favourable scaling or memory behaviour.
+
+None is a free upgrade. A compact recurrent state can be efficient, but it may not preserve every detail of a long context as precisely as full attention. Hybrid designs try to balance those trade-offs rather than declare one family the winner.
+
+## Choosing a model or architecture for a job
+
+There is no universal “best” model. Start with the workload and constraints, then choose the architecture and serving setup that fit.
+
+| Your priority | What to investigate | Why |
+|---|---|---|
+| **Complex maths, coding or multi-step analysis** | Reasoning-oriented models, verifiable rewards and tool-use support. | Extra inference-time computation can help on hard tasks, but increases latency and cost. |
+| **Fast responses for autocomplete or chat** | Smaller dense models, compact MoE models and efficient decode kernels. | A lower time-per-token can matter more than a model's peak benchmark score. |
+| **Very long documents or histories** | Long-context support, cache efficiency and retrieval quality. | A huge context window is useful only if the model can reliably use the information inside it. |
+| **Local or private deployment** | Downloadable weights, quantization support and the memory needs of the full runtime. | Parameter count alone does not tell you whether a model will fit or run well on your machine. |
+| **High-throughput serving** | MoE routing, GQA/MLA-style cache designs, batching and inference servers such as vLLM or SGLang. | Good serving performance depends on the whole stack, not just the model architecture. |
+| **Images, audio or video** | Native multimodal input support and the model's actual modality-specific limits. | A text-only model with an added wrapper is not necessarily equivalent to one trained for multimodal input. |
+
+The architecture matters, but so do the tokenizer, training data, post-training, inference engine, quantization, hardware and evaluation setup. Comparing model names alone misses most of the engineering.
+
+## The takeaway
+
+An LLM is not magic, but it is not “just autocomplete” in the dismissive sense either. It is a large learned system built from token representations, attention or other sequence-processing layers, feed-forward computation, and a training process that shapes how those parts behave.
+
+The practical limits often show up in less glamorous places: memory bandwidth, cache size, communication between GPUs, prompt length, serving queues and the cost of generating more tokens. Understanding those constraints makes it easier to judge why one architecture is fast, another is expensive, and a third works better for a particular task.
+
+Once you understand the journey from token ID to output probability, the headline terms—GQA, MLA, MoE, RoPE, quantization and test-time compute—stop being a wall of acronyms. They become different engineering answers to the same question: **how do we make a model more capable without making it impossibly expensive to train and run?**
 
 ---
 
 ### Keep exploring
 
-* Andrej Karpathy's [Deep Dive into LLMs like ChatGPT](https://www.youtube.com/watch?v=7xTGNNLPyMI) and [Let's build the GPT Tokenizer](https://www.youtube.com/watch?v=zduSFxRajkE)
-* [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) by Jay Alammar
-* [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437) (for a masterclass in MLA, fine-grained MoE, and FP8 systems engineering)
-* [LMSYS Chatbot Arena Leaderboard](https://lmarena.ai/) (for live Elo rankings across proprietary and open-weight models)
-* [vLLM PagedAttention Paper](https://arxiv.org/abs/2309.06180) (how modern inference servers actually manage KV cache memory in production)
+- 3Blue1Brown: [Transformers, the tech behind LLMs](https://www.youtube.com/watch?v=wjZofJX0v4M) and [Attention in transformers, step by step](https://www.youtube.com/watch?v=eMlx5fFNoYc)
+- Andrej Karpathy: [Let's build GPT from scratch, in code](https://www.youtube.com/watch?v=kCc8FmEb1nY) and [Let's build the GPT Tokenizer](https://www.youtube.com/watch?v=zduSFxRajkE)
+- Jay Alammar: [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/)
+- DeepSeek: [V3 Technical Report](https://arxiv.org/abs/2412.19437) and [V4.1-Flash announcement](https://www.deepseek.com/en/news/deepseek-v4-1-flash/)
+- [vLLM PagedAttention paper](https://arxiv.org/abs/2309.06180) for a deeper look at KV-cache management in serving systems
