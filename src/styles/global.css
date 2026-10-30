@@ -75,6 +75,22 @@ body {
   background-color: rgba(128, 128, 128, 0.08);
 }
 
+/* Interactive Gutter Physics Canvas */
+#gutter-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+}
+
 .container {
   max-width: 740px;
   width: 100%;

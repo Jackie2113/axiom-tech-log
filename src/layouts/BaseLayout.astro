@@ -2,6 +2,7 @@
 import '../styles/global.css';
 const { title = 'AXIOM' } = Astro.props;
 const pathname = Astro.url.pathname;
+const isIndex = pathname === '/' || pathname === '';
 ---
 
 <html lang="en">
@@ -18,11 +19,12 @@ const pathname = Astro.url.pathname;
       document.documentElement.setAttribute('data-theme', savedTheme);
     </script>
   </head>
-  <body>
+  <body data-page-mode={isIndex ? 'index' : 'river'}>
+    <canvas id="gutter-canvas"></canvas>
     <div class="cursor-dot" id="cursor-dot"></div>
     <div class="cursor-ring" id="cursor-ring"></div>
 
-    <div class="container">
+    <div class="container" id="main-container">
       <header class="site-header">
         <div class="brand-group">
           <a href="/" class="site-title">AXIOM</a>
@@ -80,15 +82,26 @@ const pathname = Astro.url.pathname;
       updateClock();
       setInterval(updateClock, 1000);
 
-      // 3. Smooth Lerp Precision Cursor
+      // 3. Smooth Lerp Precision Cursor & Velocity Tracking
       const dot = document.getElementById('cursor-dot');
       const ring = document.getElementById('cursor-ring');
-      let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
-      let ringX = mouseX, ringY = mouseY;
+      let mouseX = -1000, mouseY = -1000;
+      let prevMouseX = -1000, prevMouseY = -1000;
+      let mouseVx = 0, mouseVy = 0;
+      let ringX = window.innerWidth / 2, ringY = window.innerHeight / 2;
 
       window.addEventListener('mousemove', (e) => {
+        if (prevMouseX < 0) {
+          prevMouseX = e.clientX;
+          prevMouseY = e.clientY;
+        }
+        mouseVx = e.clientX - prevMouseX;
+        mouseVy = e.clientY - prevMouseY;
+        prevMouseX = e.clientX;
+        prevMouseY = e.clientY;
         mouseX = e.clientX;
         mouseY = e.clientY;
+
         if (dot) {
           dot.style.left = `${mouseX}px`;
           dot.style.top = `${mouseY}px`;
@@ -98,6 +111,8 @@ const pathname = Astro.url.pathname;
       const renderCursor = () => {
         ringX += (mouseX - ringX) * 0.18;
         ringY += (mouseY - ringY) * 0.18;
+        mouseVx *= 0.85;
+        mouseVy *= 0.85;
         if (ring) {
           ring.style.left = `${ringX}px`;
           ring.style.top = `${ringY}px`;
@@ -110,6 +125,351 @@ const pathname = Astro.url.pathname;
         el.addEventListener('mouseenter', () => ring?.classList.add('active'));
         el.addEventListener('mouseleave', () => ring?.classList.remove('active'));
       });
+
+      // 4. Interactive Gutter Physics Engine
+      const canvas = document.getElementById('gutter-canvas') as HTMLCanvasElement | null;
+      const ctx = canvas?.getContext('2d');
+      const pageMode = document.body.getAttribute('data-page-mode') || 'river';
+
+      let width = window.innerWidth;
+      let height = window.innerHeight;
+      let dpr = window.devicePixelRatio || 1;
+
+      // Scroll tracking (unique per webpage)
+      let targetScrollRatio = 0;
+      let smoothScrollRatio = 0;
+      let activeSectionTitle = 'OVERVIEW';
+      const headings = Array.from(document.querySelectorAll('.prose h2, h1.post-title')) as HTMLElement[];
+
+      const updateScrollMetrics = () => {
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        targetScrollRatio = docHeight > 10 ? Math.min(1, Math.max(0, window.scrollY / docHeight)) : 1;
+
+        // Find current section heading for the river gauge
+        let currentHeading = 'START';
+        for (const h of headings) {
+          if (h.getBoundingClientRect().top <= window.innerHeight * 0.35) {
+            currentHeading = (h.textContent || '').trim().slice(0, 22).toUpperCase();
+          }
+        }
+        activeSectionTitle = currentHeading;
+      };
+
+      window.addEventListener('scroll', updateScrollMetrics, { passive: true });
+
+      // River state (for Topic / Article pages)
+      interface RiverLine {
+        baseX: number;
+        side: 'left' | 'right';
+        dx: Float32Array;
+        vx: Float32Array;
+        phase: number;
+      }
+      interface StreamParticle {
+        lineIdx: number;
+        y: number;
+        speed: number;
+        length: number;
+      }
+
+      const NODE_SPACING = 14;
+      let numNodes = 0;
+      let riverLines: RiverLine[] = [];
+      let particles: StreamParticle[] = [];
+
+      // Vector Lattice state (for Main Index page)
+      interface LatticeNode {
+        x: number;
+        y: number;
+        angle: number;
+        vAngle: number;
+        pulse: number;
+      }
+      let latticeNodes: LatticeNode[] = [];
+      let hoveredRowY = -1000;
+
+      document.querySelectorAll('.index-row').forEach((row) => {
+        row.addEventListener('mouseenter', () => {
+          const rect = row.getBoundingClientRect();
+          hoveredRowY = rect.top + rect.height / 2;
+        });
+        row.addEventListener('mouseleave', () => {
+          hoveredRowY = -1000;
+        });
+      });
+
+      const initGutterSimulation = () => {
+        if (!canvas || !ctx) return;
+        width = window.innerWidth;
+        height = window.innerHeight;
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const containerEl = document.getElementById('main-container');
+        const rect = containerEl?.getBoundingClientRect();
+        const leftGutterEnd = rect ? Math.max(0, rect.left - 36) : (width - 740) / 2 - 36;
+        const rightGutterStart = rect ? Math.min(width, rect.right + 36) : (width + 740) / 2 + 36;
+
+        if (leftGutterEnd < 60) {
+          riverLines = [];
+          latticeNodes = [];
+          return;
+        }
+
+        if (pageMode === 'river') {
+          numNodes = Math.ceil(height / NODE_SPACING) + 2;
+          riverLines = [];
+          particles = [];
+
+          const linesPerSide = Math.min(11, Math.max(5, Math.floor(leftGutterEnd / 32)));
+          const margin = 32;
+
+          // Left gutter streamlines
+          for (let i = 0; i < linesPerSide; i++) {
+            const t = linesPerSide === 1 ? 0.5 : i / (linesPerSide - 1);
+            const x = margin + t * (leftGutterEnd - margin * 1.5);
+            riverLines.push({
+              baseX: x,
+              side: 'left',
+              dx: new Float32Array(numNodes),
+              vx: new Float32Array(numNodes),
+              phase: i * 0.7,
+            });
+          }
+
+          // Right gutter streamlines
+          const rightWidth = width - rightGutterStart;
+          for (let i = 0; i < linesPerSide; i++) {
+            const t = linesPerSide === 1 ? 0.5 : i / (linesPerSide - 1);
+            const x = rightGutterStart + margin * 0.5 + t * (rightWidth - margin * 1.5);
+            riverLines.push({
+              baseX: x,
+              side: 'right',
+              dx: new Float32Array(numNodes),
+              vx: new Float32Array(numNodes),
+              phase: i * 0.7 + Math.PI,
+            });
+          }
+
+          // Silt / Flow Tracer Particles
+          for (let i = 0; i < riverLines.length * 3; i++) {
+            particles.push({
+              lineIdx: i % riverLines.length,
+              y: Math.random() * height,
+              speed: 1.2 + Math.random() * 1.4,
+              length: 8 + Math.random() * 14,
+            });
+          }
+        } else {
+          // Index Mode: Magnetic Vector Lattice
+          latticeNodes = [];
+          const stepX = 34;
+          const stepY = 34;
+          for (let y = 40; y < height - 30; y += stepY) {
+            for (let x = 36; x < leftGutterEnd; x += stepX) {
+              latticeNodes.push({ x, y, angle: -Math.PI / 2, vAngle: 0, pulse: 0 });
+            }
+            for (let x = rightGutterStart; x < width - 36; x += stepX) {
+              latticeNodes.push({ x, y, angle: -Math.PI / 2, vAngle: 0, pulse: 0 });
+            }
+          }
+        }
+        updateScrollMetrics();
+      };
+
+      window.addEventListener('resize', initGutterSimulation);
+      initGutterSimulation();
+
+      let time = 0;
+
+      const animate = () => {
+        time += 0.025;
+        smoothScrollRatio += (targetScrollRatio - smoothScrollRatio) * 0.1;
+
+        if (ctx && canvas) {
+          ctx.clearRect(0, 0, width, height);
+          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+          const rgb = isDark ? '237, 237, 237' : '17, 17, 17';
+
+          if (pageMode === 'river' && riverLines.length > 0) {
+            const waterlineY = Math.max(48, Math.min(height - 48, smoothScrollRatio * height));
+            const handRadius = 115;
+
+            // Update & Draw Each River Streamline
+            for (let l = 0; l < riverLines.length; l++) {
+              const line = riverLines[l];
+              const { dx, vx, baseX } = line;
+
+              // Advect wake downstream (from top to bottom)
+              for (let j = numNodes - 1; j >= 1; j--) {
+                dx[j] = dx[j] * 0.92 + dx[j - 1] * 0.08;
+              }
+
+              for (let j = 0; j < numNodes; j++) {
+                const y = j * NODE_SPACING;
+                const ambientWave = Math.sin(time * 1.4 + j * 0.12 + line.phase) * 1.8;
+
+                // Cursor obstacle interaction ("hand in the river")
+                const currX = baseX + dx[j];
+                const distX = currX - mouseX;
+                const distY = y - mouseY;
+                const distSq = distX * distX + distY * distY;
+
+                if (distSq < handRadius * handRadius && distSq > 1) {
+                  const dist = Math.sqrt(distSq);
+                  const factor = Math.pow(1 - dist / handRadius, 2);
+                  const pushDir = distX >= 0 ? 1 : -1;
+
+                  // Part the water around the hand + inject downstream vortex ripple
+                  const partForce = pushDir * factor * 4.2;
+                  const wakeRipple = Math.sin((y - mouseY) * 0.15 - time * 6) * factor * 2.5;
+                  vx[j] += partForce + wakeRipple + mouseVx * factor * 0.12;
+                }
+
+                // Spring restoration + damping
+                const springForce = (ambientWave - dx[j]) * 0.065;
+                vx[j] = (vx[j] + springForce) * 0.86;
+                dx[j] += vx[j];
+              }
+
+              // Draw Top Covered Portion (Energized River above Waterline)
+              ctx.beginPath();
+              for (let j = 0; j < numNodes; j++) {
+                const y = j * NODE_SPACING;
+                if (y > waterlineY + NODE_SPACING) break;
+                const x = baseX + dx[j];
+                if (j === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+              }
+              ctx.strokeStyle = `rgba(${rgb}, ${isDark ? 0.32 : 0.26})`;
+              ctx.lineWidth = 1.15;
+              ctx.stroke();
+
+              // Draw Bottom Unread Portion (Dormant Riverbed below Waterline)
+              ctx.beginPath();
+              let started = false;
+              for (let j = 0; j < numNodes; j++) {
+                const y = j * NODE_SPACING;
+                if (y < waterlineY) continue;
+                const x = baseX + dx[j];
+                if (!started) {
+                  ctx.moveTo(x, y);
+                  started = true;
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              }
+              ctx.strokeStyle = `rgba(${rgb}, ${isDark ? 0.07 : 0.06})`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+
+            // Draw Flowing Silt / Tracer Particles along the Streamlines
+            for (const p of particles) {
+              const line = riverLines[p.lineIdx];
+              if (!line) continue;
+
+              const isCovered = p.y <= waterlineY;
+              p.y += p.speed * (isCovered ? 1.35 : 0.45);
+              if (p.y > height) p.y = 0;
+
+              const nodeIdx = Math.min(numNodes - 1, Math.floor(p.y / NODE_SPACING));
+              const x = line.baseX + line.dx[nodeIdx];
+
+              ctx.beginPath();
+              ctx.moveTo(x, p.y);
+              ctx.lineTo(x, p.y + (isCovered ? p.length : p.length * 0.5));
+              ctx.strokeStyle = `rgba(${rgb}, ${isCovered ? (isDark ? 0.75 : 0.6) : 0.12})`;
+              ctx.lineWidth = isCovered ? 1.6 : 1;
+              ctx.stroke();
+            }
+
+            // Draw Waterline Meniscus & Scroll Telemetry Marker on the Inner River Banks
+            const leftLines = riverLines.filter((r) => r.side === 'left');
+            const rightLines = riverLines.filter((r) => r.side === 'right');
+            const waterNode = Math.min(numNodes - 1, Math.floor(waterlineY / NODE_SPACING));
+
+            if (leftLines.length > 0) {
+              const firstLeft = leftLines[0].baseX + leftLines[0].dx[waterNode];
+              const lastLeft = leftLines[leftLines.length - 1].baseX + leftLines[leftLines.length - 1].dx[waterNode];
+
+              ctx.beginPath();
+              ctx.moveTo(firstLeft - 8, waterlineY);
+              ctx.lineTo(lastLeft + 14, waterlineY);
+              ctx.strokeStyle = `rgba(${rgb}, 0.55)`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+
+              // Percentage & Section Readout
+              const pct = String(Math.round(smoothScrollRatio * 100)).padStart(3, '0');
+              ctx.font = '500 10px "JetBrains Mono", monospace';
+              ctx.fillStyle = `rgba(${rgb}, 0.75)`;
+              ctx.fillText(`${pct}% // ${activeSectionTitle}`, firstLeft - 4, waterlineY - 7);
+            }
+
+            if (rightLines.length > 0) {
+              const firstRight = rightLines[0].baseX + rightLines[0].dx[waterNode];
+              const lastRight = rightLines[rightLines.length - 1].baseX + rightLines[rightLines.length - 1].dx[waterNode];
+
+              ctx.beginPath();
+              ctx.moveTo(firstRight - 14, waterlineY);
+              ctx.lineTo(lastRight + 8, waterlineY);
+              ctx.strokeStyle = `rgba(${rgb}, 0.55)`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+          } else if (pageMode === 'index' && latticeNodes.length > 0) {
+            // Index Mode: Interactive Magnetic Vector Field
+            for (const node of latticeNodes) {
+              const dx = mouseX - node.x;
+              const dy = mouseY - node.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              // Base harmonic drift angle
+              let targetAngle = Math.sin(time * 0.8 + node.x * 0.01 + node.y * 0.01) * 0.4 - Math.PI / 2;
+              let influence = 0;
+
+              if (dist < 220) {
+                influence = Math.pow(1 - dist / 220, 1.6);
+                targetAngle = Math.atan2(dy, dx);
+              } else if (hoveredRowY > 0) {
+                const rowDy = hoveredRowY - node.y;
+                const rowDist = Math.abs(rowDy);
+                if (rowDist < 140) {
+                  influence = (1 - rowDist / 140) * 0.65;
+                  targetAngle = node.x < width / 2 ? 0 : Math.PI;
+                }
+              }
+
+              // Shortest-angle spring physics
+              let diff = targetAngle - node.angle;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+
+              node.vAngle = (node.vAngle + diff * 0.12) * 0.82;
+              node.angle += node.vAngle;
+
+              const len = 7 + influence * 6;
+              const x1 = node.x - Math.cos(node.angle) * (len * 0.5);
+              const y1 = node.y - Math.sin(node.angle) * (len * 0.5);
+              const x2 = node.x + Math.cos(node.angle) * (len * 0.5);
+              const y2 = node.y + Math.sin(node.angle) * (len * 0.5);
+
+              const alpha = (isDark ? 0.16 : 0.14) + influence * 0.55;
+              ctx.beginPath();
+              ctx.moveTo(x1, y1);
+              ctx.lineTo(x2, y2);
+              ctx.strokeStyle = `rgba(${rgb}, ${alpha})`;
+              ctx.lineWidth = 1 + influence * 0.8;
+              ctx.stroke();
+            }
+          }
+        }
+        requestAnimationFrame(animate);
+      };
+      requestAnimationFrame(animate);
     </script>
   </body>
 </html>
